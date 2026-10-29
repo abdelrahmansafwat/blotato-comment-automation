@@ -11,6 +11,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const PRIVATE_REPLY_WINDOW_MS = 7 * DAY_MS;
 const MESSAGING_WINDOW_MS = DAY_MS;
 const EXPIRED_TOKEN_CODE = 190;
+const RATE_LIMIT_CODES = [4, 17, 32, 613];
 
 type Context = NonNullable<Awaited<ReturnType<typeof loadContext>>>;
 
@@ -100,7 +101,8 @@ async function finalMessage({ run: current, campaign: flow, account: owner, toke
 
 async function checkResult(result: SendResult, accountId: number, runId?: number) {
   if (result.ok) return true;
-  if (result.status === 429 || result.status >= 500) throw new Error(result.message);
+  const rateLimited = result.code !== undefined && RATE_LIMIT_CODES.includes(result.code);
+  if (rateLimited || result.status === 429 || result.status >= 500) throw new Error(result.message);
 
   if (result.code === EXPIRED_TOKEN_CODE) {
     await disconnectAccount(accountId);
