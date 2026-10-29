@@ -30,7 +30,7 @@ Meta webhook ─> POST /webhook ─> events queue ─> events worker ─> Postgr
                          sweeper (every minute) ─> expires old runs     actions worker ─> Instagram Graph API
 ```
 
-1. **Webhook.** Checks `X-Hub-Signature-256` against the raw body, puts the raw payload on the `webhook-events` queue and returns 200 at once. No parsing or database work happens inside the request, so Meta never times out and retries because of us.
+1. **Webhook.** Checks `X-Hub-Signature-256` against the raw body, puts the raw payload on the `webhook-events` queue and returns 200 at once. No parsing or database work happens inside the request, so a slow database never makes Meta time out and retry.
 2. **Events worker.** Parses the payload into comment and message events.
    - A comment that matches an enabled campaign creates a `run` row and queues two jobs: the private reply DM and the public comment reply.
    - A DM is matched to the sender's runs that are waiting for an answer.
@@ -56,6 +56,16 @@ any active status ─> failed    (Instagram refused, or a platform window closed
 
 A status records what has already been done. Every job can therefore look at the row and decide whether its step still needs doing, which makes retries and duplicate jobs safe.
 
+## Instagram rules this design relies on
+
+- A private reply is one message to the commenter, sent within 7 days of the comment. Meta documents no error code for a second one.
+- After that, the account can only message the person if they reply, and only within 24 hours of their reply.
+- Private replies are limited to 750 calls per hour per account. Rate-limited calls fail with error codes 4, 17, 32 or 613.
+- Webhooks are retried for up to 36 hours and can arrive more than once.
+- Public replies only work on top-level, visible comments.
+
+Sources: [Private replies](https://developers.facebook.com/docs/instagram-platform/private-replies), [Rate limiting](https://developers.facebook.com/docs/graph-api/overview/rate-limiting), [Webhooks](https://developers.facebook.com/docs/graph-api/webhooks/getting-started), [Comment replies](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-comment/replies). Checked October 2026.
+
 ## Decisions and trade-offs
 
 **One fixed flow, configured per campaign.** Comment reply, DM asking for one value, validate, final message. It is not a workflow engine. It cannot branch or ask several questions. To grow it, I would add a `flow_type` column first, and a list of steps per campaign if real demand for longer flows appears.
@@ -68,19 +78,19 @@ A status records what has already been done. Every job can therefore look at the
 
 **Database constraints do the duplicate protection.**
 
-- `UNIQUE(comment_id)`: Meta delivers webhooks at least once and retries them for up to 36 hours ([docs](https://developers.facebook.com/docs/graph-api/webhooks/getting-started)), so the same comment can arrive twice.
+- `UNIQUE(comment_id)`: webhooks can arrive more than once, so the same comment can arrive twice.
 - Partial unique index on `(tenant_id, campaign_id, user_id)` for active statuses: one active run per person per campaign, and the person can go through the campaign again later.
 - Conditional updates everywhere (`WHERE id = ? AND status = ?`). When the sweeper and a last-second reply race, whichever commits first wins and the other changes nothing.
 
 **One answer, several waiting runs.** If a person is waiting in two campaigns, the reply is applied to every run where it is valid. If it is valid for none, every waiting run counts a wrong answer but the person gets only one wrong-answer message.
 
-**Priority inside one account.** Final message first (the person did their part, and the account can only message them within 24 hours of their reply ([docs](https://developers.facebook.com/docs/instagram-platform/private-replies))), then the first DM, then the public comment reply. Private replies are capped at 750 calls per hour per account ([docs](https://developers.facebook.com/docs/graph-api/overview/rate-limiting)), so in a spike, public replies can arrive late, but they are still sent.
+**Priority inside one account.** Final message first, because the person did their part and the 24 hour window is running. Then the first DM, then the public comment reply. With private replies capped per hour, public replies can arrive late in a spike, but they are still sent.
 
-**Public reply is decoupled.** The private reply DM does not need the public reply, so the public reply is its own low-priority job, tracked by `comment_replied_at`. Instagram only allows public replies on top-level, visible comments ([docs](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-comment/replies)).
+**Public reply is decoupled.** The private reply DM does not need the public reply, so the public reply is its own low-priority job, tracked by `comment_replied_at`.
 
-**Sending is at least once.** An API call and a database write can never be atomic. Where a duplicate would hurt, there is a guard: the run status, `private_reply_sent_at` and `comment_replied_at`. A duplicate final message is harmless and accepted. The run status matters most for the private reply: Instagram allows only one private reply message to the commenter, within 7 days of the comment, and documents no error code for a second one ([docs](https://developers.facebook.com/docs/instagram-platform/private-replies)). The worker checks the 7 days before sending, counted from when the run was created, and the final message is checked against `last_interaction_at`.
+**Sending is at least once.** An API call and a database write can never be atomic. Where a duplicate would hurt, there is a guard: the run status, `private_reply_sent_at` and `comment_replied_at`. A duplicate final message is harmless and accepted. The run status matters most for the private reply, since only one is allowed and no error code tells us a second one was refused. The worker checks the 7 day window before sending, counted from when the run was created, and checks the final message against the 24 hour window using `last_interaction_at`.
 
-**Retries.** 5 attempts with exponential backoff and jitter on both queues. Network errors, 429 and 5xx responses, and Meta's rate-limit error codes (4, 17, 32, 613) are retried. An expired token is handled below. Any other Instagram error marks the run `failed` with the reason in `last_error` and is never retried. A failed public reply never fails the run. The first DM and public reply jobs have fixed ids, so a webhook retry after a crash requeues a stuck `pending` run without sending anything twice.
+**Retries.** 5 attempts with exponential backoff and jitter on both queues. Network errors, 429 and 5xx responses, and Meta's rate-limit error codes are retried. An expired token is handled below. Any other Instagram error marks the run `failed` with the reason in `last_error` and is never retried. A failed public reply never fails the run. The first DM and public reply jobs have fixed ids, so a webhook retry after a crash requeues a stuck `pending` run without sending anything twice.
 
 **Expired token.** Error 190 flips the account to `disconnected`. Jobs for that account then finish without sending, and the runs keep their status, so they can be rebuilt from the rows when the account reconnects.
 
