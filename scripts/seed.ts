@@ -1,10 +1,17 @@
+import { config } from '../src/config.js';
 import { db, pool } from '../src/db/index.js';
 import { account, campaign } from '../src/db/schema.js';
+import { encryptToken } from '../src/security/token-encryption.js';
+
+const accessTokenEncrypted = encryptToken('dev-token', config.tokenEncryptionKey);
 
 const [demo] = await db
   .insert(account)
-  .values({ igUserId: '17841400000000000', username: 'demo_creator', accessToken: 'dev-token' })
-  .onConflictDoUpdate({ target: account.igUserId, set: { username: 'demo_creator' } })
+  .values({ igUserId: '17841400000000000', username: 'demo_creator', accessTokenEncrypted })
+  .onConflictDoUpdate({
+    target: account.igUserId,
+    set: { username: 'demo_creator', accessTokenEncrypted },
+  })
   .returning({ id: account.id });
 
 await db

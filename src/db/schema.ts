@@ -21,7 +21,7 @@ export const account = pgTable(
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     igUserId: text('ig_user_id').notNull().unique(),
     username: text('username').notNull(),
-    accessToken: text('access_token').notNull(),
+    accessTokenEncrypted: text('access_token_encrypted').notNull(),
     status: text('status', { enum: ['connected', 'disconnected'] })
       .notNull()
       .default('connected'),
