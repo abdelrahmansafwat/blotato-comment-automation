@@ -24,18 +24,28 @@ export async function handleComment(comment: CommentEvent) {
     })
     .onConflictDoNothing()
     .returning({ id: run.id });
-  if (!created) return;
+
+  const runId = created?.id ?? (await findPendingRun(comment.commentId));
+  if (!runId) return;
 
   await actionsQueue.add(
     'private_reply',
-    { type: 'private_reply', runId: created.id },
-    { priority: JOB_PRIORITY.private_reply },
+    { type: 'private_reply', runId },
+    { priority: JOB_PRIORITY.private_reply, jobId: `private_reply-${runId}` },
   );
   await actionsQueue.add(
     'public_reply',
-    { type: 'public_reply', runId: created.id },
-    { priority: JOB_PRIORITY.public_reply },
+    { type: 'public_reply', runId },
+    { priority: JOB_PRIORITY.public_reply, jobId: `public_reply-${runId}` },
   );
+}
+
+async function findPendingRun(commentId: string) {
+  const [existing] = await db
+    .select({ id: run.id })
+    .from(run)
+    .where(and(eq(run.commentId, commentId), eq(run.status, 'pending')));
+  return existing?.id;
 }
 
 async function findCampaign(accountId: number, comment: CommentEvent) {

@@ -26,5 +26,11 @@ export const JOB_PRIORITY = {
   public_reply: 3,
 } as const;
 
-export const eventsQueue = new Queue<EventJob>(EVENTS_QUEUE, { connection });
-export const actionsQueue = new Queue<ActionJob>(ACTIONS_QUEUE, { connection });
+const defaultJobOptions = {
+  attempts: 5,
+  backoff: { type: 'exponential', delay: 1000, jitter: 0.5 },
+  removeOnComplete: true,
+};
+
+export const eventsQueue = new Queue<EventJob>(EVENTS_QUEUE, { connection, defaultJobOptions });
+export const actionsQueue = new Queue<ActionJob>(ACTIONS_QUEUE, { connection, defaultJobOptions });
