@@ -4,4 +4,4 @@ import { startSweeper } from './workers/sweeper.js';
 
 startEventsWorker();
 startActionsWorker();
-startSweeper();
+await startSweeper();
