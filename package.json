@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --env-file=.env src/server.ts",
+    "worker": "tsx watch --env-file=.env src/worker.ts",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
     "seed": "tsx --env-file=.env scripts/seed.ts",
