@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "tsx watch --env-file=.env src/server.ts",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
     "seed": "tsx --env-file=.env scripts/seed.ts",
@@ -12,7 +13,9 @@
     "format": "prettier --write ."
   },
   "dependencies": {
+    "bullmq": "^6.5.1",
     "drizzle-orm": "^0.45.4",
+    "fastify": "^5.0.0",
     "pg": "^8.13.0"
   },
   "devDependencies": {

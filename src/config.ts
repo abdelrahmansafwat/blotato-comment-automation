@@ -5,5 +5,15 @@ function required(name: string): string {
 }
 
 export const config = {
+  port: Number(process.env.PORT ?? 3000),
   databaseUrl: required('DATABASE_URL'),
+  redis: {
+    host: process.env.REDIS_HOST ?? 'localhost',
+    port: Number(process.env.REDIS_PORT ?? 6379),
+  },
+  meta: {
+    appSecret: required('META_APP_SECRET'),
+    verifyToken: required('META_VERIFY_TOKEN'),
+    graphUrl: process.env.META_GRAPH_URL ?? 'https://graph.instagram.com/v23.0',
+  },
 };
