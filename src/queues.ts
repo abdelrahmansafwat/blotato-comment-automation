@@ -1,7 +1,12 @@
 import { Queue } from 'bullmq';
+import { Redis } from 'ioredis';
 import { config } from './config.js';
 
-export const connection = { host: config.redis.host, port: config.redis.port };
+export const connection = new Redis({
+  host: config.redis.host,
+  port: config.redis.port,
+  maxRetriesPerRequest: null,
+});
 
 export const EVENTS_QUEUE = 'webhook-events';
 export type EventJob = { payload: string; receivedAt: string };
